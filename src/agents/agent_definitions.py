@@ -1,7 +1,10 @@
 """Agent definitions and prompts"""
-from typing import TypedDict, List, Dict, Annotated
+from typing import TypedDict, List, Dict, Annotated, Optional
 from langchain_openai import ChatOpenAI
 import operator
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(TypedDict):
@@ -15,6 +18,32 @@ class AgentState(TypedDict):
     conversation_history: Annotated[List[Dict], operator.add]
     current_agent: str
     iteration: int
+
+
+def retrieve_evidence(query: str, k: int = 5, data_dir: str = "data") -> Optional[List[Dict]]:
+    """
+    Retrieve evidence from vector store
+    
+    Args:
+        query: Query string
+        k: Number of results to return
+        data_dir: Data directory path
+        
+    Returns:
+        List of search hits with scores, text, and metadata
+    """
+    try:
+        from ..ingestion.document_processor import DocumentProcessor
+        
+        dp = DocumentProcessor(data_dir)
+        if not dp.store_exists():
+            logger.warning("Vector store does not exist yet")
+            return None
+        
+        return dp.query(query, k=k)
+    except Exception as e:
+        logger.error(f"Error retrieving evidence: {e}")
+        return None
 
 
 class ResearchAgent:
@@ -50,16 +79,44 @@ Be thorough but concise. Prioritize clarity and accuracy."""
         query = state["query"]
         papers = state["papers"]
         
-        # Create a prompt for the LLM
-        papers_text = "\n\n".join([
-            f"Paper {i+1}: {p['title']}\n"
-            f"Authors: {', '.join(p['authors'])}\n"
-            f"Abstract: {p['abstract']}\n"
-            f"Published: {p['published']}"
-            for i, p in enumerate(papers[:5])  # Limit to first 5 papers
-        ])
+        # Try to retrieve evidence from vector store
+        evidence_hits = retrieve_evidence(query, k=10)
         
-        prompt = f"""Based on the following research papers related to "{query}", 
+        if evidence_hits:
+            # Use vector store evidence
+            logger.info(f"Using vector store evidence: {len(evidence_hits)} chunks")
+            evidence_snippets = [h["text"] for h in evidence_hits]
+            evidence_text = "\n\n---\n\n".join([
+                f"Evidence {i+1} (score: {evidence_hits[i]['score']:.3f}):\n{snippet}"
+                for i, snippet in enumerate(evidence_snippets[:8])  # Limit to top 8
+            ])
+            
+            prompt = f"""Based on the following evidence from research papers related to "{query}", 
+provide a comprehensive research summary:
+
+EVIDENCE FROM PAPERS:
+{evidence_text}
+
+Your summary should:
+1. Identify the main themes and patterns across the evidence
+2. Highlight key findings and methodologies
+3. Note any consensus or disagreements
+4. Identify novel contributions
+5. Point out research gaps or limitations
+
+Provide your analysis:"""
+        else:
+            # Fallback to abstracts if vector store not available
+            logger.info("Vector store not available, using paper abstracts")
+            papers_text = "\n\n".join([
+                f"Paper {i+1}: {p['title']}\n"
+                f"Authors: {', '.join(p['authors'])}\n"
+                f"Abstract: {p['abstract']}\n"
+                f"Published: {p['published']}"
+                for i, p in enumerate(papers[:5])  # Limit to first 5 papers
+            ])
+            
+            prompt = f"""Based on the following research papers related to "{query}", 
 provide a comprehensive research summary:
 
 {papers_text}

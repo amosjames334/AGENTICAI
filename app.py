@@ -60,6 +60,10 @@ def initialize_session_state():
         st.session_state.workflow_results = None
     if 'arxiv_loader' not in st.session_state:
         st.session_state.arxiv_loader = ArxivLoader()
+    if 'doc_processor' not in st.session_state:
+        st.session_state.doc_processor = DocumentProcessor()
+    if 'vector_store_ready' not in st.session_state:
+        st.session_state.vector_store_ready = False
 
 
 def display_agent_response(agent_name, agent_role, message):
@@ -127,8 +131,12 @@ def main():
         - 🧩 Synthesizer
         """)
     
+    # Check vector store status on load
+    if st.session_state.doc_processor.store_exists():
+        st.session_state.vector_store_ready = True
+    
     # Main content area
-    tab1, tab2, tab3 = st.tabs(["📝 Research Query", "🤖 Agent Collaboration", "📊 Results"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 Research Query", "📚 PDF Ingestion", "🤖 Agent Collaboration", "📊 Results"])
     
     with tab1:
         st.header("Start Your Research")
@@ -212,6 +220,125 @@ def main():
                         st.exception(e)
     
     with tab2:
+        st.header("📚 PDF Ingestion & Vector Store")
+        
+        # Vector store status
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.session_state.vector_store_ready:
+                st.success("✅ Vector Store Ready")
+            else:
+                st.warning("⚠️ Vector Store Not Built")
+        
+        with col2:
+            if st.button("🔄 Check Vector Store Status"):
+                if st.session_state.doc_processor.store_exists():
+                    st.session_state.vector_store_ready = True
+                    st.success("Vector store found!")
+                else:
+                    st.session_state.vector_store_ready = False
+                    st.info("Vector store not found. Build it below.")
+        
+        st.markdown("---")
+        
+        # PDF Ingestion Section
+        st.subheader("📥 Download PDFs & Build Vector Store")
+        
+        if not st.session_state.papers:
+            st.info("👈 First, search for papers in the 'Research Query' tab")
+        else:
+            st.success(f"Found {len(st.session_state.papers)} papers ready to download")
+            
+            # Download PDFs button
+            if st.button("📥 Download PDFs from arXiv", type="primary", use_container_width=True):
+                with st.spinner("Downloading PDFs..."):
+                    try:
+                        enriched_papers = st.session_state.arxiv_loader.download_selected(
+                            st.session_state.papers
+                        )
+                        st.session_state.papers = enriched_papers
+                        
+                        # Count successful downloads
+                        downloaded = sum(1 for p in enriched_papers if p.get('pdf_path'))
+                        st.success(f"✅ Downloaded {downloaded} of {len(enriched_papers)} PDFs")
+                        
+                        # Show download results
+                        for i, paper in enumerate(enriched_papers[:5]):
+                            if paper.get('pdf_path'):
+                                st.write(f"✅ {i+1}. {paper['title'][:50]}...")
+                            else:
+                                st.write(f"❌ {i+1}. {paper['title'][:50]}...")
+                        
+                        if len(enriched_papers) > 5:
+                            st.info(f"... and {len(enriched_papers) - 5} more")
+                    except Exception as e:
+                        st.error(f"Error downloading PDFs: {e}")
+            
+            st.markdown("---")
+            
+            # Build vector store button
+            st.subheader("🔧 Build Vector Store")
+            
+            # Check if papers have pdf_path
+            papers_with_pdfs = [p for p in st.session_state.papers if p.get('pdf_path')]
+            
+            if not papers_with_pdfs:
+                st.info("📥 Download PDFs first before building the vector store")
+            else:
+                st.success(f"Ready to process {len(papers_with_pdfs)} PDFs")
+                
+                if st.button("🔧 Build Vector Store", type="primary", use_container_width=True):
+                    with st.spinner("Processing PDFs and building vector store... This may take a few minutes."):
+                        try:
+                            pdf_paths = [p['pdf_path'] for p in papers_with_pdfs if p.get('pdf_path')]
+                            
+                            # Build the vector store
+                            n_chunks, embed_dim = st.session_state.doc_processor.build_store_from_pdfs(pdf_paths)
+                            
+                            st.session_state.vector_store_ready = True
+                            st.success(f"✅ Vector store built successfully!")
+                            st.info(f"📊 Created {n_chunks} text chunks with {embed_dim}-dimensional embeddings")
+                            st.balloons()
+                        except Exception as e:
+                            st.error(f"Error building vector store: {e}")
+                            st.exception(e)
+        
+        st.markdown("---")
+        
+        # Query vector store section
+        st.subheader("🔍 Query Vector Store")
+        
+        if not st.session_state.vector_store_ready:
+            st.info("Build the vector store first to enable queries")
+        else:
+            query_text = st.text_input(
+                "Enter a query to search the papers",
+                placeholder="e.g., What are the main findings about...",
+                help="Search for specific topics or questions within the ingested papers"
+            )
+            
+            num_results = st.slider("Number of results", 1, 20, 5)
+            
+            if st.button("🔍 Search", type="secondary"):
+                if query_text:
+                    with st.spinner("Searching vector store..."):
+                        try:
+                            hits = st.session_state.doc_processor.query(query_text, k=num_results)
+                            
+                            st.success(f"Found {len(hits)} relevant chunks")
+                            
+                            for i, hit in enumerate(hits):
+                                with st.expander(f"Result {i+1} - Score: {hit['score']:.3f}"):
+                                    st.markdown(f"**Source:** {hit['meta']['pdf_path']}")
+                                    st.markdown(f"**Chunk ID:** {hit['meta']['chunk_id']}")
+                                    st.markdown("---")
+                                    st.markdown(hit['text'][:500] + "..." if len(hit['text']) > 500 else hit['text'])
+                        except Exception as e:
+                            st.error(f"Error querying vector store: {e}")
+                else:
+                    st.warning("Please enter a query")
+    
+    with tab3:
         st.header("🤖 Agent Collaboration Flow")
         
         if st.session_state.workflow_results:
@@ -233,7 +360,7 @@ def main():
         else:
             st.info("👈 Start by searching for papers and running the agent analysis in the 'Research Query' tab.")
     
-    with tab3:
+    with tab4:
         st.header("📊 Research Synthesis Results")
         
         if st.session_state.workflow_results:
