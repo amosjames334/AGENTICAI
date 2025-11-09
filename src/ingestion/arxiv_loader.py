@@ -27,10 +27,23 @@ def _slugify(text: str, max_len: int = 80) -> str:
 
 
 class ArxivLoader:
-    """Load and parse papers from arXiv"""
+    """Load and parse papers from arXiv with session support"""
     
-    def __init__(self, cache_dir: str = "data/papers"):
-        self.cache_dir = Path(cache_dir)
+    def __init__(self, cache_dir: str = "data/papers", session_manager=None):
+        """
+        Initialize ArxivLoader
+        
+        Args:
+            cache_dir: Directory for PDF storage (overridden if session_manager provided)
+            session_manager: Optional SessionManager for topic-based organization
+        """
+        if session_manager:
+            self.cache_dir = Path(session_manager.get_papers_dir())
+            self.session_manager = session_manager
+        else:
+            self.cache_dir = Path(cache_dir)
+            self.session_manager = None
+        
         self.cache_dir.mkdir(parents=True, exist_ok=True)
     
     def search_papers(
@@ -119,6 +132,8 @@ class ArxivLoader:
             List of paper dictionaries augmented with 'pdf_path' field
         """
         enriched = []
+        successful_downloads = 0
+        
         for paper in selected_papers:
             # Download the PDF
             arxiv_id = paper.get('arxiv_id', '')
@@ -130,6 +145,9 @@ class ArxivLoader:
             paper_copy = dict(paper)
             paper_copy['pdf_path'] = str(pdf_path) if pdf_path else None
             enriched.append(paper_copy)
+            
+            if pdf_path:
+                successful_downloads += 1
         
         # Save manifest
         manifest_path = self.cache_dir / "manifest.json"
@@ -139,6 +157,13 @@ class ArxivLoader:
             logger.info(f"Saved manifest to {manifest_path}")
         except Exception as e:
             logger.warning(f"Could not save manifest: {e}")
+        
+        # Update session metadata if available
+        if self.session_manager:
+            self.session_manager.update_metadata(
+                papers_count=len(enriched),
+                papers_downloaded=successful_downloads
+            )
         
         return enriched
 

@@ -46,3 +46,5 @@ data/vector_store/
 *.log
 streamlit_cache/
 
+Documents/
+data/

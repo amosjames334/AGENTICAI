@@ -20,14 +20,20 @@ class AgentState(TypedDict):
     iteration: int
 
 
-def retrieve_evidence(query: str, k: int = 5, data_dir: str = "data") -> Optional[List[Dict]]:
+def retrieve_evidence(
+    query: str, 
+    k: int = 5, 
+    vector_store_dir: Optional[str] = None,
+    session_manager=None
+) -> Optional[List[Dict]]:
     """
     Retrieve evidence from vector store
     
     Args:
         query: Query string
         k: Number of results to return
-        data_dir: Data directory path
+        vector_store_dir: Vector store directory path (overridden by session_manager)
+        session_manager: Optional SessionManager for session-based retrieval
         
     Returns:
         List of search hits with scores, text, and metadata
@@ -35,7 +41,15 @@ def retrieve_evidence(query: str, k: int = 5, data_dir: str = "data") -> Optiona
     try:
         from ..ingestion.document_processor import DocumentProcessor
         
-        dp = DocumentProcessor(data_dir)
+        # Determine vector store directory
+        if session_manager:
+            vs_dir = session_manager.get_vector_store_dir()
+        elif vector_store_dir:
+            vs_dir = vector_store_dir
+        else:
+            vs_dir = "data/vector_store"
+        
+        dp = DocumentProcessor(vector_store_dir=vs_dir)
         if not dp.store_exists():
             logger.warning("Vector store does not exist yet")
             return None
