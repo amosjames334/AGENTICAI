@@ -3,6 +3,7 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 import os
+import logging
 from dotenv import load_dotenv
 
 from .agent_definitions import (
@@ -14,6 +15,7 @@ from .agent_definitions import (
 )
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class ResearchWorkflow:
