@@ -11,7 +11,8 @@ from .agent_definitions import (
     ResearchAgent,
     CriticAgent,
     QuestionGeneratorAgent,
-    SynthesizerAgent
+    SynthesizerAgent,
+    InsightGeneratorAgent
 )
 
 load_dotenv()
@@ -33,6 +34,7 @@ class ResearchWorkflow:
         self.critic_agent = CriticAgent(self.llm)
         self.question_agent = QuestionGeneratorAgent(self.llm)
         self.synthesizer_agent = SynthesizerAgent(self.llm)
+        self.insight_generator_agent = InsightGeneratorAgent(self.llm)
         
         # Build the workflow graph
         self.graph = self._build_graph()
@@ -48,6 +50,7 @@ class ResearchWorkflow:
         workflow.add_node("critic_response", self._critic_response_node)  # Critic responds back
         workflow.add_node("question_generator", self._question_node)
         workflow.add_node("synthesizer", self._synthesizer_node)
+        workflow.add_node("insight_generator", self._insight_generator_node)  # Collective insight report
         
         # Define the workflow edges with conversational back-and-forth
         workflow.set_entry_point("researcher")
@@ -56,7 +59,8 @@ class ResearchWorkflow:
         workflow.add_edge("researcher_response", "critic_response")  # Critic responds to clarification
         workflow.add_edge("critic_response", "question_generator")
         workflow.add_edge("question_generator", "synthesizer")
-        workflow.add_edge("synthesizer", END)
+        workflow.add_edge("synthesizer", "insight_generator")  # Generate collective insights
+        workflow.add_edge("insight_generator", END)
         
         return workflow.compile()
     
@@ -83,6 +87,10 @@ class ResearchWorkflow:
     def _critic_response_node(self, state: AgentState) -> Dict[str, Any]:
         """Critic responds to Researcher's clarification"""
         return self.critic_agent.respond_to(state, "Researcher")
+    
+    def _insight_generator_node(self, state: AgentState) -> Dict[str, Any]:
+        """Insight Generator produces collective insight report"""
+        return self.insight_generator_agent.process(state)
     
     def run(self, query: str, papers: list, vector_store_dir: str = None) -> Dict[str, Any]:
         """
@@ -116,6 +124,7 @@ class ResearchWorkflow:
             "critique": "",
             "follow_up_questions": [],
             "synthesis": "",
+            "insight_report": "",  # Collective insight report
             "conversation_history": [],  # Will contain multi-agent conversation
             "current_agent": "",
             "iteration": 0,

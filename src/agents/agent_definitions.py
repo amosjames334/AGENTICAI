@@ -15,6 +15,7 @@ class AgentState(TypedDict):
     critique: str
     follow_up_questions: List[str]
     synthesis: str
+    insight_report: str  # Collective insight report
     conversation_history: Annotated[List[Dict], operator.add]  # Now includes multi-agent exchanges
     current_agent: str
     iteration: int
@@ -768,6 +769,102 @@ Generate the reasoning dialogue:"""
                 "agent": self.name,
                 "role": self.role,
                 "message": f"Built reasoning chain for: {claim}"
+            }],
+            "current_agent": self.name
+        }
+
+
+class InsightGeneratorAgent:
+    """Agent that generates collective insights and testable hypotheses"""
+    
+    def __init__(self, llm: ChatOpenAI):
+        self.llm = llm
+        self.name = "Insight Generator"
+        self.role = "Collective Insight Agent"
+        
+    @property
+    def system_prompt(self) -> str:
+        return """You are an Insight Generator agent specialized in meta-analysis and hypothesis formation.
+
+Your responsibilities:
+1. Distill the collective findings of all agents into a core insight
+2. Trace the reasoning by citing specific agent contributions
+3. Generate a testable hypothesis based on the converging ideas
+4. Assess confidence level based on evidence density and agreement
+
+When generating insights:
+- Identify the emergent theme or converging idea across all agents
+- Be concise and high-signal (avoid repetition)
+- Make hypotheses specific and testable
+- Ground confidence assessment in actual evidence quality
+- Think meta-level: what do the agents collectively reveal?
+
+Your insight report should be the culmination of the entire discussion."""
+
+    def process(self, state: AgentState) -> Dict:
+        """Generate collective insight report"""
+        query = state["query"]
+        research_summary = state.get("research_summary", "")
+        critique = state.get("critique", "")
+        synthesis = state.get("synthesis", "")
+        questions = state.get("follow_up_questions", [])
+        conversation = state.get("conversation_history", [])
+        
+        # Extract key conversation points for citation
+        agent_contributions = {}
+        for msg in conversation:
+            agent = msg["agent"]
+            if agent not in agent_contributions:
+                agent_contributions[agent] = []
+            agent_contributions[agent].append(msg["message"][:200] + "...")
+        
+        contributions_text = "\n".join([
+            f"**{agent}**: {contrib[0] if contrib else 'N/A'}"
+            for agent, contrib in agent_contributions.items()
+        ])
+        
+        prompt = f"""Based on the entire research discussion about "{query}", create a Collective Insight Report.
+
+AGENT CONTRIBUTIONS:
+{contributions_text}
+
+SYNTHESIS:
+{synthesis[:1000]}
+
+FOLLOW-UP QUESTIONS:
+{chr(10).join(questions[:3])}
+
+Generate a structured insight report with these sections:
+
+**Collective Insight Report – {query}**
+
+**Core Insight:**
+(2-3 sentences summarizing what all agents collectively revealed—the converging idea or emergent theme)
+
+**Reasoning Trace / Citations:**
+(Bullet points citing where that insight came from, e.g., "From Researcher: emphasized hybrid pipelines", "From Critic: noted scalability limits", "From Synthesizer: converged on pragmatic approaches")
+
+**Hypothesis / Next Exploration:**
+(A concise, research-style testable statement. Format: "If [condition], then [measurable outcome] for [scope]")
+
+**Confidence Level:**
+(Choose: High / Medium / Low, with brief justification based on evidence density and agent agreement)
+
+Generate the complete report:"""
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "insight_report": response.content,
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": response.content
             }],
             "current_agent": self.name
         }

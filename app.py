@@ -511,8 +511,16 @@ def main():
         if st.session_state.workflow_results:
             results = st.session_state.workflow_results
             
+            # Collective Insight Report - Highlighted at the top
+            insight_report = results.get("insight_report", "")
+            if insight_report:
+                st.markdown("### 🎯 Collective Insight Report")
+                st.info("**Meta-Analysis**: This report distills what all agents collectively revealed")
+                st.markdown(insight_report)
+                st.markdown("---")
+            
             # Final synthesis
-            st.subheader("🎯 Final Synthesis")
+            st.subheader("📝 Synthesis")
             st.markdown(results.get("synthesis", "No synthesis available"))
             
             st.markdown("---")
@@ -543,6 +551,12 @@ def main():
                             conversation_section += f"### {msg['agent']}:\n\n"
                         conversation_section += f"{msg['message']}\n\n---\n\n"
                 
+                # Build insight section
+                insight_section = ""
+                insight_report = results.get('insight_report', '')
+                if insight_report:
+                    insight_section = f"\n## 🎯 Collective Insight Report\n\n{insight_report}\n\n---\n"
+                
                 report = f"""# Research Analysis Report
 
 ## Query
@@ -551,12 +565,14 @@ def main():
 ## Session
 {st.session_state.session_manager.metadata.get('topic', 'N/A') if st.session_state.session_manager else 'N/A'}
 
+{insight_section}
+
 {conversation_section}
 
 ## Follow-up Questions
 {chr(10).join(['- ' + q for q in results.get('follow_up_questions', [])])}
 
-## Final Synthesis
+## Synthesis
 {results.get('synthesis', 'N/A')}
 
 ---
