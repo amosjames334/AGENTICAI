@@ -467,7 +467,13 @@ def main():
                             )
                         
                         query = st.session_state.session_manager.metadata.get('topic', 'Research Analysis')
-                        results = workflow.run(query, st.session_state.papers)
+                        
+                        # Get vector store directory from session manager
+                        vector_store_dir = None
+                        if st.session_state.session_manager:
+                            vector_store_dir = st.session_state.session_manager.get_vector_store_dir()
+                        
+                        results = workflow.run(query, st.session_state.papers, vector_store_dir=vector_store_dir)
                         st.session_state.workflow_results = results
                         
                         st.success("✅ Analysis complete!")

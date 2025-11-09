@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     conversation_history: Annotated[List[Dict], operator.add]
     current_agent: str
     iteration: int
+    vector_store_dir: Optional[str]  # Add vector store directory
 
 
 def retrieve_evidence(
@@ -39,7 +40,11 @@ def retrieve_evidence(
         List of search hits with scores, text, and metadata
     """
     try:
-        from ..ingestion.document_processor import DocumentProcessor
+        # Use absolute import to avoid relative import issues
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from ingestion.document_processor import DocumentProcessor
         import os
         
         # DEBUG: Log inputs
@@ -123,6 +128,7 @@ Be thorough but concise. Prioritize clarity and accuracy."""
         """Process the research papers and create a summary"""
         query = state["query"]
         papers = state["papers"]
+        vector_store_dir = state.get("vector_store_dir")
         
         # DEBUG: Log the query and papers
         logger.info("="*80)
@@ -130,10 +136,11 @@ Be thorough but concise. Prioritize clarity and accuracy."""
         logger.info(f"DEBUG: Query: {query}")
         logger.info(f"DEBUG: Number of papers: {len(papers)}")
         logger.info(f"DEBUG: Papers have pdf_path: {any(p.get('pdf_path') for p in papers)}")
+        logger.info(f"DEBUG: Vector store dir from state: {vector_store_dir}")
         
         # Try to retrieve evidence from vector store
         logger.info("DEBUG: Attempting to retrieve evidence from vector store...")
-        evidence_hits = retrieve_evidence(query, k=10)
+        evidence_hits = retrieve_evidence(query, k=10, vector_store_dir=vector_store_dir)
         
         # DEBUG: Log retrieval results
         if evidence_hits:

@@ -369,7 +369,10 @@ def cmd_research(args):
         # Run agent workflow
         logger.info("\nRunning multi-agent analysis...")
         workflow = ResearchWorkflow(model=args.model, temperature=args.temperature)
-        results = workflow.run(args.topic, papers)
+        
+        # Pass vector store directory from session
+        vector_store_dir = session.get_vector_store_dir() if session else None
+        results = workflow.run(args.topic, papers, vector_store_dir=vector_store_dir)
         
         # Format and output report
         report = format_report(results)

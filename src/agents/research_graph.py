@@ -72,13 +72,14 @@ class ResearchWorkflow:
         """Synthesizer agent node"""
         return self.synthesizer_agent.process(state)
     
-    def run(self, query: str, papers: list) -> Dict[str, Any]:
+    def run(self, query: str, papers: list, vector_store_dir: str = None) -> Dict[str, Any]:
         """
         Run the research workflow
         
         Args:
             query: Research question
             papers: List of paper metadata
+            vector_store_dir: Optional path to vector store directory
             
         Returns:
             Final state after all agents have processed
@@ -88,6 +89,7 @@ class ResearchWorkflow:
         logger.info("DEBUG: ResearchWorkflow.run() called")
         logger.info(f"DEBUG: Query: {query}")
         logger.info(f"DEBUG: Number of papers: {len(papers)}")
+        logger.info(f"DEBUG: Vector store dir: {vector_store_dir}")
         if papers:
             logger.info(f"DEBUG: Sample paper keys: {list(papers[0].keys())}")
             logger.info(f"DEBUG: Papers with pdf_path: {sum(1 for p in papers if p.get('pdf_path'))}")
@@ -104,7 +106,8 @@ class ResearchWorkflow:
             "synthesis": "",
             "conversation_history": [],
             "current_agent": "",
-            "iteration": 0
+            "iteration": 0,
+            "vector_store_dir": vector_store_dir
         }
         
         # Run the graph
