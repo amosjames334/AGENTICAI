@@ -17,6 +17,7 @@ faiss-cpu>=1.7.4
 chromadb>=0.4.18
 sentence-transformers>=2.2.0
 numpy>=1.24.0,<2.0.0
+torch == 2.2.2
 
 # Web Interface
 streamlit>=1.29.0

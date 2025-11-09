@@ -40,23 +40,54 @@ def retrieve_evidence(
     """
     try:
         from ..ingestion.document_processor import DocumentProcessor
+        import os
+        
+        # DEBUG: Log inputs
+        logger.info("DEBUG: retrieve_evidence() called")
+        logger.info(f"DEBUG:   query: {query[:50]}...")
+        logger.info(f"DEBUG:   k: {k}")
+        logger.info(f"DEBUG:   vector_store_dir: {vector_store_dir}")
+        logger.info(f"DEBUG:   session_manager: {session_manager}")
         
         # Determine vector store directory
         if session_manager:
             vs_dir = session_manager.get_vector_store_dir()
+            logger.info(f"DEBUG:   Using session_manager path: {vs_dir}")
         elif vector_store_dir:
             vs_dir = vector_store_dir
+            logger.info(f"DEBUG:   Using provided vector_store_dir: {vs_dir}")
         else:
             vs_dir = "data/vector_store"
+            logger.info(f"DEBUG:   Using default path: {vs_dir}")
+        
+        # DEBUG: Check if path exists
+        logger.info(f"DEBUG:   Checking path: {vs_dir}")
+        logger.info(f"DEBUG:   Path exists: {os.path.exists(vs_dir)}")
+        if os.path.exists(vs_dir):
+            logger.info(f"DEBUG:   Contents: {os.listdir(vs_dir)}")
         
         dp = DocumentProcessor(vector_store_dir=vs_dir)
-        if not dp.store_exists():
-            logger.warning("Vector store does not exist yet")
+        
+        # DEBUG: Check store exists
+        store_exists = dp.store_exists()
+        logger.info(f"DEBUG:   Vector store exists: {store_exists}")
+        
+        if not store_exists:
+            logger.warning("DEBUG:   ❌ Vector store does not exist at this path")
+            logger.warning(f"DEBUG:   Looking for:")
+            logger.warning(f"DEBUG:     - {vs_dir}/index.faiss")
+            logger.warning(f"DEBUG:     - {vs_dir}/chunks.json")
+            logger.warning(f"DEBUG:     - {vs_dir}/metadata.json")
             return None
         
-        return dp.query(query, k=k)
+        logger.info(f"DEBUG:   ✅ Vector store found, querying...")
+        result = dp.query(query, k=k)
+        logger.info(f"DEBUG:   Query returned {len(result) if result else 0} results")
+        return result
     except Exception as e:
-        logger.error(f"Error retrieving evidence: {e}")
+        logger.error(f"DEBUG: ❌ Error retrieving evidence: {e}")
+        import traceback
+        logger.error(f"DEBUG: Traceback: {traceback.format_exc()}")
         return None
 
 
@@ -93,8 +124,25 @@ Be thorough but concise. Prioritize clarity and accuracy."""
         query = state["query"]
         papers = state["papers"]
         
+        # DEBUG: Log the query and papers
+        logger.info("="*80)
+        logger.info("DEBUG: ResearchAgent.process() called")
+        logger.info(f"DEBUG: Query: {query}")
+        logger.info(f"DEBUG: Number of papers: {len(papers)}")
+        logger.info(f"DEBUG: Papers have pdf_path: {any(p.get('pdf_path') for p in papers)}")
+        
         # Try to retrieve evidence from vector store
+        logger.info("DEBUG: Attempting to retrieve evidence from vector store...")
         evidence_hits = retrieve_evidence(query, k=10)
+        
+        # DEBUG: Log retrieval results
+        if evidence_hits:
+            logger.info(f"DEBUG: ✅ Successfully retrieved {len(evidence_hits)} chunks from vector store")
+            logger.info(f"DEBUG: Sample chunk score: {evidence_hits[0]['score']:.3f}")
+            logger.info(f"DEBUG: Sample chunk preview: {evidence_hits[0]['text'][:100]}...")
+        else:
+            logger.warning("DEBUG: ❌ No evidence retrieved from vector store - will use abstracts")
+        logger.info("="*80)
         
         if evidence_hits:
             # Use vector store evidence

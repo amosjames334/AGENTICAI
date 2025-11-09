@@ -81,6 +81,18 @@ class ResearchWorkflow:
         Returns:
             Final state after all agents have processed
         """
+        # DEBUG: Log workflow inputs
+        logger.info("="*80)
+        logger.info("DEBUG: ResearchWorkflow.run() called")
+        logger.info(f"DEBUG: Query: {query}")
+        logger.info(f"DEBUG: Number of papers: {len(papers)}")
+        if papers:
+            logger.info(f"DEBUG: Sample paper keys: {list(papers[0].keys())}")
+            logger.info(f"DEBUG: Papers with pdf_path: {sum(1 for p in papers if p.get('pdf_path'))}")
+            if papers[0].get('pdf_path'):
+                logger.info(f"DEBUG: Sample pdf_path: {papers[0]['pdf_path']}")
+        logger.info("="*80)
+        
         initial_state: AgentState = {
             "query": query,
             "papers": papers,
