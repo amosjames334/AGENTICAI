@@ -38,19 +38,23 @@ class ResearchWorkflow:
         self.graph = self._build_graph()
     
     def _build_graph(self) -> StateGraph:
-        """Build the agent workflow graph"""
+        """Build the agent workflow graph with multi-agent conversation"""
         workflow = StateGraph(AgentState)
         
-        # Add nodes for each agent
+        # Add nodes for each agent and conversation rounds
         workflow.add_node("researcher", self._researcher_node)
         workflow.add_node("critic", self._critic_node)
+        workflow.add_node("researcher_response", self._researcher_response_node)  # Researcher responds to critic
+        workflow.add_node("critic_response", self._critic_response_node)  # Critic responds back
         workflow.add_node("question_generator", self._question_node)
         workflow.add_node("synthesizer", self._synthesizer_node)
         
-        # Define the workflow edges
+        # Define the workflow edges with conversational back-and-forth
         workflow.set_entry_point("researcher")
         workflow.add_edge("researcher", "critic")
-        workflow.add_edge("critic", "question_generator")
+        workflow.add_edge("critic", "researcher_response")  # Researcher responds to critique
+        workflow.add_edge("researcher_response", "critic_response")  # Critic responds to clarification
+        workflow.add_edge("critic_response", "question_generator")
         workflow.add_edge("question_generator", "synthesizer")
         workflow.add_edge("synthesizer", END)
         
@@ -71,6 +75,14 @@ class ResearchWorkflow:
     def _synthesizer_node(self, state: AgentState) -> Dict[str, Any]:
         """Synthesizer agent node"""
         return self.synthesizer_agent.process(state)
+    
+    def _researcher_response_node(self, state: AgentState) -> Dict[str, Any]:
+        """Researcher responds to Critic's points"""
+        return self.research_agent.respond_to(state, "Critic")
+    
+    def _critic_response_node(self, state: AgentState) -> Dict[str, Any]:
+        """Critic responds to Researcher's clarification"""
+        return self.critic_agent.respond_to(state, "Researcher")
     
     def run(self, query: str, papers: list, vector_store_dir: str = None) -> Dict[str, Any]:
         """
@@ -104,7 +116,7 @@ class ResearchWorkflow:
             "critique": "",
             "follow_up_questions": [],
             "synthesis": "",
-            "conversation_history": [],
+            "conversation_history": [],  # Will contain multi-agent conversation
             "current_agent": "",
             "iteration": 0,
             "vector_store_dir": vector_store_dir

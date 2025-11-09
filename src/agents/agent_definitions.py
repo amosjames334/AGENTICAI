@@ -15,7 +15,7 @@ class AgentState(TypedDict):
     critique: str
     follow_up_questions: List[str]
     synthesis: str
-    conversation_history: Annotated[List[Dict], operator.add]
+    conversation_history: Annotated[List[Dict], operator.add]  # Now includes multi-agent exchanges
     current_agent: str
     iteration: int
     vector_store_dir: Optional[str]  # Add vector store directory
@@ -122,7 +122,61 @@ When summarizing:
 - Identify gaps or limitations mentioned
 - Connect findings to the broader research question
 
+When responding to other agents:
+- Address their specific concerns directly
+- Use phrases like "You raised a good point about...", "Regarding your question on..."
+- Provide evidence or reasoning to support your response
+- Acknowledge valid criticisms and refine your position
+
 Be thorough but concise. Prioritize clarity and accuracy."""
+    
+    def respond_to(self, state: AgentState, responding_to: str) -> Dict:
+        """Respond to another agent's critique or question"""
+        conversation = state.get("conversation_history", [])
+        research_summary = state.get("research_summary", "")
+        
+        # Get the message we're responding to
+        target_message = None
+        for msg in reversed(conversation):
+            if msg["agent"] == responding_to:
+                target_message = msg["message"]
+                break
+        
+        if not target_message:
+            return {}
+        
+        prompt = f"""You are in a research discussion. Another agent ({responding_to}) has responded to your analysis.
+
+YOUR ORIGINAL ANALYSIS:
+{research_summary[:1500]}
+
+THEIR RESPONSE:
+{target_message[:1000]}
+
+Now respond directly to their points. Address their specific concerns, acknowledge valid criticisms, and refine or defend your position as appropriate. Use conversational language like:
+- "You raise a valid concern about..."
+- "Regarding your point on [X], I'd argue that..."
+- "That's fair, but let me clarify..."
+- "I agree that [X], however..."
+
+Keep your response focused and conversational (2-3 paragraphs)."""
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": response.content,
+                "responding_to": responding_to
+            }],
+            "current_agent": self.name
+        }
 
     def process(self, state: AgentState) -> Dict:
         """Process the research papers and create a summary"""
@@ -238,32 +292,39 @@ Your responsibilities:
 
 When critiquing:
 - Be constructive and specific
-- Question methodological choices
+- Question methodological choices directly to the analyst
 - Identify potential biases or limitations
 - Suggest what might be missing
 - Consider alternative explanations
 - Point out inconsistencies
+- Use conversational language: "You claim that...", "But have you considered..."
 
-Your goal is to strengthen research through rigorous questioning, not to dismiss it."""
+When responding to other agents:
+- Acknowledge their points: "I see your point about..."
+- Refine your critique based on their response
+- Ask follow-up questions
+- Be open to revising your assessment
+
+Your goal is to strengthen research through rigorous dialogue, not to dismiss it."""
 
     def process(self, state: AgentState) -> Dict:
-        """Critique the research summary"""
+        """Critique the research summary in a conversational way"""
         research_summary = state["research_summary"]
         query = state["query"]
         
-        prompt = f"""Review this research summary about "{query}":
+        prompt = f"""You're in a research discussion about "{query}". The Analyst just presented their findings:
 
 {research_summary}
 
-Provide a critical analysis:
-1. What are the strengths of this research?
-2. What are the potential weaknesses or limitations?
-3. What assumptions might be questionable?
-4. What important perspectives or approaches might be missing?
-5. What inconsistencies or gaps do you notice?
-6. What would make this research more robust?
+Respond directly to the Analyst with your critical assessment. Address them conversationally:
+- Start with "I appreciate your analysis, but..."  or "You've made interesting points, however..."
+- Use direct questions: "But have you considered...?" "How do you account for...?"
+- Challenge specific claims: "You state that X, but isn't it possible that Y?"
+- Point out what's missing: "I notice you don't address..."
 
-Provide your critique:"""
+Be constructive but probing. Make this feel like a real academic discussion.
+
+Provide your response (2-3 paragraphs):"""
 
         messages = [
             {"role": "system", "content": self.system_prompt},
@@ -277,7 +338,56 @@ Provide your critique:"""
             "conversation_history": [{
                 "agent": self.name,
                 "role": self.role,
-                "message": response.content
+                "message": response.content,
+                "responding_to": "Researcher"
+            }],
+            "current_agent": self.name
+        }
+    
+    def respond_to(self, state: AgentState, responding_to: str) -> Dict:
+        """Respond to another agent's response"""
+        conversation = state.get("conversation_history", [])
+        critique = state.get("critique", "")
+        
+        # Get the message we're responding to
+        target_message = None
+        for msg in reversed(conversation):
+            if msg["agent"] == responding_to and msg.get("responding_to") == self.name:
+                target_message = msg["message"]
+                break
+        
+        if not target_message:
+            return {}
+        
+        prompt = f"""You're continuing a research discussion. You raised some critiques, and the {responding_to} has responded.
+
+YOUR CRITIQUE:
+{critique[:1000]}
+
+THEIR RESPONSE:
+{target_message[:1000]}
+
+Now respond to their points. Either:
+- Acknowledge if they've addressed your concerns: "That's a fair clarification..."
+- Push back if needed: "I'm still not convinced because..."
+- Ask follow-up questions: "But what about...?"
+- Find middle ground: "So we agree that X, but disagree on Y?"
+
+Keep it conversational (2-3 paragraphs)."""
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": response.content,
+                "responding_to": responding_to
             }],
             "current_agent": self.name
         }
@@ -372,45 +482,60 @@ class SynthesizerAgent:
 Your responsibilities:
 1. Combine insights from research, critique, and questions
 2. Create a coherent narrative that captures the full picture
-3. Highlight consensus and disagreements
+3. Highlight consensus and disagreements reached through dialogue
 4. Provide actionable recommendations
 5. Explain the reasoning chain clearly
 
 When synthesizing:
-- Show how different perspectives connect
-- Acknowledge tensions and trade-offs
-- Build a coherent story from fragments
+- Reference specific points from the agent conversation
+- Show how the dialogue led to refined understanding
+- Acknowledge tensions and how they were resolved
+- Build a coherent story from the collaborative discussion
 - Make the reasoning process transparent
+- Use phrases like "After the exchange between agents...", "As the discussion revealed..."
 - Provide clear, actionable insights
 - Ground conclusions in evidence
 
-Your synthesis should be more valuable than the sum of its parts."""
+Your synthesis should reflect the collaborative reasoning process."""
 
     def process(self, state: AgentState) -> Dict:
-        """Synthesize all insights into a final report"""
+        """Synthesize all insights into a final report, referencing the conversation"""
         query = state["query"]
         research_summary = state["research_summary"]
         critique = state["critique"]
         questions = state["follow_up_questions"]
+        conversation = state.get("conversation_history", [])
         
-        prompt = f"""Synthesize the following research analysis about "{query}":
+        # Extract key conversation points
+        conversation_summary = "\n\n".join([
+            f"**{msg['agent']}** (responding to {msg.get('responding_to', 'initial')}): {msg['message'][:300]}..."
+            for msg in conversation[-4:]  # Last 4 messages (the back-and-forth)
+        ])
+        
+        prompt = f"""You've been observing a research discussion about "{query}". The agents had a back-and-forth conversation:
 
-RESEARCH SUMMARY:
-{research_summary}
+CONVERSATION HIGHLIGHTS:
+{conversation_summary}
 
-CRITICAL ANALYSIS:
-{critique}
+INITIAL RESEARCH SUMMARY:
+{research_summary[:1000]}
 
-FOLLOW-UP QUESTIONS:
+FOLLOW-UP QUESTIONS IDENTIFIED:
 {chr(10).join(questions)}
 
-Create a comprehensive synthesis that:
-1. Summarizes the current state of knowledge
-2. Integrates the critique to provide a balanced view
-3. Highlights key insights and their implications
-4. Connects findings to practical applications
-5. Outlines promising future research directions
-6. Makes the reasoning chain transparent
+Create a synthesis that:
+1. References specific points from the agent conversation
+2. Shows how the dialogue refined the initial understanding
+3. Highlights what the agents agreed on after discussion
+4. Notes remaining tensions or unresolved questions
+5. Explains the reasoning chain that emerged from their exchange
+6. Provides actionable insights based on the collective reasoning
+
+Use phrases like:
+- "Through the exchange, the agents clarified that..."
+- "The Critic's challenge led the Analyst to refine..."
+- "After discussion, both agents agreed that..."
+- "The conversation revealed..."
 
 Provide your synthesis:"""
 
@@ -427,6 +552,222 @@ Provide your synthesis:"""
                 "agent": self.name,
                 "role": self.role,
                 "message": response.content
+            }],
+            "current_agent": self.name
+        }
+
+
+class DialogueModerator:
+    """Agent that facilitates conversations between research agents"""
+    
+    def __init__(self, llm: ChatOpenAI):
+        self.llm = llm
+        self.name = "Moderator"
+        self.role = "Dialogue Facilitator"
+    
+    def facilitate_dialogue(
+        self, 
+        state: AgentState, 
+        topic: str,
+        participants: List[str],
+        turns: int = 3
+    ) -> Dict:
+        """
+        Facilitate a multi-turn conversation between agents
+        
+        Args:
+            state: Current agent state
+            topic: Topic to discuss
+            participants: List of agent names/roles
+            turns: Number of conversational turns
+            
+        Returns:
+            Updated state with dialogue exchanges
+        """
+        research_summary = state.get("research_summary", "")
+        critique = state.get("critique", "")
+        
+        # Create dialogue prompt
+        prompt = f"""You are facilitating a research dialogue on: "{state['query']}"
+
+RESEARCH SUMMARY:
+{research_summary[:1000]}...
+
+CRITIQUE POINTS:
+{critique[:800]}...
+
+Generate a {turns}-turn conversation between these research agents:
+- Analyst: Presents findings and interpretations
+- Critic: Questions methodology and challenges assumptions  
+- Moderator: Synthesizes and guides toward resolution
+
+Format each turn as:
+**[Agent Name]:** "Their statement or question"
+
+The conversation should show:
+1. Direct challenges and responses
+2. Building on each other's points
+3. Reasoning chains ("If X, then Y")
+4. Tension and resolution
+5. Cross-referencing earlier points
+
+Topic for this dialogue: {topic}
+
+Generate the conversation:"""
+
+        messages = [
+            {"role": "system", "content": "You generate realistic multi-agent research dialogues showing visible reasoning."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "dialogue_exchanges": [{
+                "topic": topic,
+                "participants": participants,
+                "content": response.content,
+                "type": "facilitated_dialogue"
+            }],
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": f"Facilitated dialogue on: {topic}"
+            }],
+            "current_agent": self.name
+        }
+    
+    def create_debate(
+        self,
+        state: AgentState,
+        debate_topic: str,
+        position_a: str,
+        position_b: str
+    ) -> Dict:
+        """
+        Create a debate-style exchange between two positions
+        
+        Args:
+            state: Current agent state
+            debate_topic: Topic to debate
+            position_a: First position/claim
+            position_b: Counter position/claim
+            
+        Returns:
+            Updated state with debate exchange
+        """
+        prompt = f"""Generate a focused debate on: {debate_topic}
+
+Position A: {position_a}
+Position B: {position_b}
+
+Create a 4-turn debate showing:
+1. Agent A makes their case with evidence
+2. Agent B challenges with counterpoints
+3. Agent A responds and refines their position
+4. Both agents find synthesis/resolution
+
+Format:
+**Agent A:** "Statement"
+**Agent B:** "Response"
+
+Make it feel like real reasoning with:
+- "But consider..."
+- "True, yet..."
+- "Building on that point..."
+- "Given this evidence, it follows that..."
+
+Generate the debate:"""
+
+        messages = [
+            {"role": "system", "content": "You create structured debates showing reasoning dynamics."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "dialogue_exchanges": [{
+                "topic": debate_topic,
+                "format": "debate",
+                "position_a": position_a,
+                "position_b": position_b,
+                "content": response.content,
+                "type": "debate"
+            }],
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": f"Moderated debate on: {debate_topic}"
+            }],
+            "current_agent": self.name
+        }
+    
+    def create_reasoning_chain(
+        self,
+        state: AgentState,
+        claim: str,
+        evidence_points: List[str]
+    ) -> Dict:
+        """
+        Create an explicit reasoning chain dialogue
+        
+        Args:
+            state: Current agent state  
+            claim: Main claim to reason about
+            evidence_points: Supporting evidence
+            
+        Returns:
+            Updated state with reasoning dialogue
+        """
+        evidence_text = "\n".join([f"- {point}" for point in evidence_points[:5]])
+        
+        prompt = f"""Create a dialogue showing step-by-step reasoning for this claim:
+
+CLAIM: {claim}
+
+EVIDENCE:
+{evidence_text}
+
+Generate a 3-agent conversation showing how they build this reasoning chain:
+- Analyst: Presents evidence and initial reasoning
+- Critic: Tests the logic, asks "does this follow?"
+- Synthesizer: Connects the steps into a coherent chain
+
+Use explicit reasoning connectors:
+- "If X, then Y"
+- "Given that..., it follows that..."
+- "Therefore..."
+- "This implies..."
+
+Show agents referencing each other:
+- "Building on [Agent]'s point about..."
+- "As [Agent] noted..."
+- "That challenges my earlier assumption that..."
+
+Format:
+**[Agent]:** "Statement"
+
+Generate the reasoning dialogue:"""
+
+        messages = [
+            {"role": "system", "content": "You create dialogues that make reasoning chains explicit and visible."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response = self.llm.invoke(messages)
+        
+        return {
+            "dialogue_exchanges": [{
+                "topic": "reasoning_chain",
+                "claim": claim,
+                "content": response.content,
+                "type": "reasoning_chain"
+            }],
+            "conversation_history": [{
+                "agent": self.name,
+                "role": self.role,
+                "message": f"Built reasoning chain for: {claim}"
             }],
             "current_agent": self.name
         }

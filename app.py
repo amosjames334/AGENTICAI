@@ -76,8 +76,12 @@ def initialize_session_state():
         st.session_state.doc_processor = None
 
 
-def display_agent_response(agent_name, agent_role, message):
+def display_agent_response(agent_name, agent_role, message, responding_to=None):
     """Display an agent's response in a formatted card"""
+    # Add visual indicator if this is a response
+    if responding_to:
+        st.markdown(f"💬 *{agent_name} responds to {responding_to}:*")
+    
     st.markdown(f"""
     <div class="agent-card">
         <div class="agent-name">🤖 {agent_name}</div>
@@ -487,10 +491,19 @@ def main():
         if st.session_state.workflow_results:
             st.markdown("---")
             st.subheader("📊 Agent Collaboration Flow")
+            st.info("💡 **Watch how agents challenge and respond to each other in real-time conversation**")
             
+            # Show the multi-agent conversation
             conversation = st.session_state.workflow_results.get("conversation_history", [])
+            
             for step in conversation:
-                display_agent_response(step["agent"], step["role"], step["message"])
+                responding_to = step.get("responding_to", None)
+                display_agent_response(
+                    step["agent"], 
+                    step["role"], 
+                    step["message"],
+                    responding_to
+                )
     
     with tab4:
         st.header("📊 Research Results")
@@ -517,6 +530,19 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
+                # Build conversation section from conversation_history
+                conversation_section = ""
+                conversation = results.get('conversation_history', [])
+                if conversation:
+                    conversation_section = "\n## Agent Conversation\n\n"
+                    for msg in conversation:
+                        responding_to = msg.get('responding_to', None)
+                        if responding_to:
+                            conversation_section += f"### {msg['agent']} (responding to {responding_to}):\n\n"
+                        else:
+                            conversation_section += f"### {msg['agent']}:\n\n"
+                        conversation_section += f"{msg['message']}\n\n---\n\n"
+                
                 report = f"""# Research Analysis Report
 
 ## Query
@@ -525,11 +551,7 @@ def main():
 ## Session
 {st.session_state.session_manager.metadata.get('topic', 'N/A') if st.session_state.session_manager else 'N/A'}
 
-## Research Summary
-{results.get('research_summary', 'N/A')}
-
-## Critical Analysis
-{results.get('critique', 'N/A')}
+{conversation_section}
 
 ## Follow-up Questions
 {chr(10).join(['- ' + q for q in results.get('follow_up_questions', [])])}
