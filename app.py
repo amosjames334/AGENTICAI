@@ -1,6 +1,8 @@
 """Streamlit UI for Research Agent System with Session Management"""
 import streamlit as st
 import os
+import queue
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 import sys
@@ -78,18 +80,75 @@ def initialize_session_state():
 
 def display_agent_response(agent_name, agent_role, message, responding_to=None):
     """Display an agent's response in a formatted card"""
-    # Add visual indicator if this is a response
+    role_lower = (agent_role or "").lower()
+
+    # Tool results: collapsed so they don't dominate the page
+    if "tool result" in role_lower:
+        with st.expander(f"📎 {agent_name} — Tool Result", expanded=False):
+            st.markdown(message)
+        return
+
+    # Tool calls: compact, highlight which tool/MCP is being invoked
+    if "tool call" in role_lower:
+        st.markdown(f"🔧 **{agent_role}**")
+        st.code(message, language="markdown")
+        return
+
+    # Final synthesis: prominent green-accented card
+    if "final synthesis" in role_lower:
+        st.markdown(f"""
+        <div class="agent-card" style="border-left-color: #28a745;">
+            <div class="agent-name">🤖 {agent_name}</div>
+            <div class="agent-role" style="color: #28a745;">✅ {agent_role}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown(message)
+        st.markdown("---")
+        return
+
+    # Thinking / default
     if responding_to:
         st.markdown(f"💬 *{agent_name} responds to {responding_to}:*")
-    
+
     st.markdown(f"""
     <div class="agent-card">
         <div class="agent-name">🤖 {agent_name}</div>
-        <div class="agent-role">{agent_role}</div>
+        <div class="agent-role">🧠 {agent_role}</div>
     </div>
     """, unsafe_allow_html=True)
     st.markdown(message)
     st.markdown("---")
+
+
+def display_run_stats(stats):
+    """Render end-of-run statistics: duration, tool usage, models."""
+    if not stats:
+        return
+
+    st.markdown("#### 📈 Run Statistics")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("⏱️ Duration", f"{stats.get('duration_seconds', 0)}s")
+    with col2:
+        st.metric("🔧 Tool Calls", stats.get("total_tool_calls", 0))
+    with col3:
+        st.metric("🧠 Reasoning Steps", stats.get("thinking_steps", 0))
+
+    tool_counts = stats.get("tool_counts", {})
+    if tool_counts:
+        st.markdown("**Tools used:**")
+        for name, count in sorted(tool_counts.items(), key=lambda x: -x[1]):
+            st.markdown(f"- `{name}` — called **{count}** time(s)")
+    else:
+        st.markdown("*No tools were called during this run.*")
+
+    brave = stats.get("brave_enabled", False)
+    st.markdown(
+        f"**Brave Search (MCP):** {'🟢 enabled' if brave else '⚪ disabled'}  \n"
+        f"**Reasoning model:** `{stats.get('light_model', 'N/A')}`  \n"
+        f"**Synthesis model:** `{stats.get('heavy_model', 'N/A')}`"
+    )
 
 
 def main():
@@ -104,13 +163,19 @@ def main():
         st.header("⚙️ Configuration")
         
         # API Key check
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            st.error("⚠️ OpenAI API key not found!")
-            st.info("Please set OPENAI_API_KEY in your .env file")
+            st.error("⚠️ Anthropic API key not found!")
+            st.info("Please set ANTHROPIC_API_KEY in your .env file")
             st.stop()
         else:
             st.success("✅ API Key configured")
+
+        # Brave Search (MCP) status
+        if os.getenv("BRAVE_API_KEY"):
+            st.success("✅ Brave Search enabled")
+        else:
+            st.info("ℹ️ Brave Search disabled (set BRAVE_API_KEY to enable web search)")
         
         st.markdown("---")
         
@@ -134,14 +199,23 @@ def main():
         if selected_option == "Create New Session...":
             st.session_state.current_session = None
             st.session_state.session_manager = None
+            st.session_state.papers = []
+            st.session_state.workflow_results = None
         else:
             # Extract session ID from selection
             session_idx = session_options.index(selected_option) - 1
             if session_idx >= 0:
                 session_id = available_sessions[session_idx]['session_id']
                 
-                if st.session_state.current_session != session_id:
-                    # Load session
+                # Reload whenever the session changed OR when papers are
+                # empty (happens after a cold restart — session_state is
+                # wiped but the selectbox keeps its previous value).
+                needs_load = (
+                    st.session_state.current_session != session_id
+                    or not st.session_state.papers
+                )
+                
+                if needs_load:
                     try:
                         st.session_state.session_manager = SessionManager.load_session(session_id)
                         st.session_state.current_session = session_id
@@ -154,17 +228,25 @@ def main():
                             vector_store_dir=st.session_state.session_manager.get_vector_store_dir()
                         )
                         
-                        # Load papers from manifest if exists
+                        # Load papers from manifest
+                        import json
                         manifest_path = Path(st.session_state.session_manager.get_papers_dir()) / "manifest.json"
                         if manifest_path.exists():
-                            import json
                             with open(manifest_path) as f:
                                 st.session_state.papers = json.load(f)
-                        
-                        st.success(f"✅ Loaded session")
+                        else:
+                            st.session_state.papers = []
+
+                        # Restore this session's previous run (if any)
+                        st.session_state.workflow_results = \
+                            st.session_state.session_manager.load_results()
+
+                        st.success(f"✅ Loaded session ({len(st.session_state.papers)} papers)")
                         
                     except Exception as e:
                         st.error(f"Error loading session: {e}")
+                        st.session_state.papers = []
+                        st.session_state.workflow_results = None
         
         # Display current session info
         if st.session_state.session_manager:
@@ -184,15 +266,22 @@ def main():
                 st.session_state.current_session = None
                 st.session_state.session_manager = None
                 st.session_state.papers = []
+                st.session_state.workflow_results = None
                 st.rerun()
         
         st.markdown("---")
         
-        # Model selection
+        # Model selection (for the final synthesis pass; the reasoning loop
+        # always uses Haiku to stay within rate limits)
         model_option = st.selectbox(
-            "Select LLM Model",
-            ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
-            index=0
+            "Synthesis Model",
+            [
+                "claude-sonnet-4-5-20250929",
+                "claude-haiku-4-5-20251001",
+            ],
+            index=0,
+            help="Haiku handles the reasoning loop. This model produces the "
+                 "final synthesis. Use Haiku everywhere to stay under rate limits."
         )
         
         temperature = st.slider(
@@ -448,62 +537,155 @@ def main():
     
     with tab3:
         st.header("🤖 Run Agent Analysis")
-        
+
+        streamed_this_run = False
+
         if not st.session_state.session_manager:
             st.warning("⚠️ No active session")
         elif not st.session_state.papers:
             st.warning("⚠️ No papers loaded")
         else:
             st.success(f"Ready to analyze {len(st.session_state.papers)} papers")
-            
-            if st.button("🚀 Start Agent Analysis", type="primary", use_container_width=True):
-                with st.spinner("Agents are collaborating..."):
+
+            has_previous_run = bool(st.session_state.workflow_results)
+            if has_previous_run:
+                run_at = st.session_state.workflow_results.get("run_at", "")
+                when = f" (from {run_at[:19].replace('T', ' ')})" if run_at else ""
+                st.info(f"💡 A previous run exists for this session{when} — "
+                        f"shown below. Re-run to refresh it.")
+                button_label = "🔁 Re-run Agent Analysis"
+            else:
+                button_label = "🚀 Start Agent Analysis"
+
+            if st.button(button_label, type="primary", use_container_width=True):
+                if workflow_type == "Interactive (with refinement)":
+                    workflow = InteractiveResearchWorkflow(
+                        model=model_option, temperature=temperature
+                    )
+                else:
+                    workflow = ResearchWorkflow(
+                        model=model_option, temperature=temperature
+                    )
+
+                query = st.session_state.session_manager.metadata.get('topic', 'Research Analysis')
+                vector_store_dir = st.session_state.session_manager.get_vector_store_dir()
+                # Capture session_state values in the main thread; the worker
+                # thread has no Streamlit context and cannot read st.session_state.
+                papers_for_run = st.session_state.papers
+
+                st.markdown("---")
+                st.subheader("📊 Agent Reasoning Flow (live)")
+
+                # Bridge: worker thread pushes events; main thread renders them.
+                event_q: "queue.Queue" = queue.Queue()
+
+                def _worker():
                     try:
-                        if workflow_type == "Interactive (with refinement)":
-                            workflow = InteractiveResearchWorkflow(
-                                model=model_option,
-                                temperature=temperature
+                        workflow.run_streaming(
+                            query,
+                            papers_for_run,
+                            vector_store_dir=vector_store_dir,
+                            on_event=event_q.put,
+                        )
+                    except Exception as e:  # surfaced to UI via the queue
+                        event_q.put({"type": "error", "message": str(e)})
+                    finally:
+                        event_q.put({"type": "__end__"})
+
+                thread = threading.Thread(target=_worker, daemon=True)
+                thread.start()
+                streamed_this_run = True
+
+                live_area = st.container()
+                status = st.status("🤖 Agent is reasoning...", expanded=True)
+                final_results = None
+                run_error = None
+
+                while True:
+                    ev = event_q.get()
+                    etype = ev.get("type")
+
+                    if etype == "__end__":
+                        break
+                    elif etype == "phase":
+                        status.update(label=f"🤖 {ev.get('label', 'Working...')}")
+                        with live_area:
+                            tools = ev.get("tools")
+                            if tools:
+                                brave = "🟢 on" if ev.get("brave_enabled") else "⚪ off"
+                                st.caption(
+                                    f"Tools available: {', '.join(f'`{t}`' for t in tools)} "
+                                    f"· Brave MCP: {brave}"
+                                )
+                    elif etype == "thinking":
+                        with live_area:
+                            display_agent_response(
+                                "Reasoning Agent",
+                                f"Thinking (step {ev.get('step')})",
+                                ev.get("text", ""),
                             )
-                        else:
-                            workflow = ResearchWorkflow(
-                                model=model_option,
-                                temperature=temperature
+                    elif etype == "tool_call":
+                        with live_area:
+                            display_agent_response(
+                                "Reasoning Agent",
+                                "Tool Call",
+                                f"Calling `{ev.get('name')}` with: {ev.get('args')}",
                             )
-                        
-                        query = st.session_state.session_manager.metadata.get('topic', 'Research Analysis')
-                        
-                        # Get vector store directory from session manager
-                        vector_store_dir = None
-                        if st.session_state.session_manager:
-                            vector_store_dir = st.session_state.session_manager.get_vector_store_dir()
-                        
-                        results = workflow.run(query, st.session_state.papers, vector_store_dir=vector_store_dir)
-                        st.session_state.workflow_results = results
-                        
-                        st.success("✅ Analysis complete!")
-                        st.balloons()
-                        
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-                        st.exception(e)
-        
-        # Display conversation
-        if st.session_state.workflow_results:
+                    elif etype == "tool_result":
+                        with live_area:
+                            display_agent_response(
+                                ev.get("name", "tool"),
+                                "Tool Result",
+                                ev.get("result", ""),
+                                responding_to="Reasoning Agent",
+                            )
+                    elif etype == "synthesis":
+                        with live_area:
+                            display_agent_response(
+                                "Reasoning Agent",
+                                "Final Synthesis",
+                                ev.get("text", ""),
+                            )
+                    elif etype == "final":
+                        final_results = ev.get("results")
+                    elif etype == "error":
+                        run_error = ev.get("message")
+
+                thread.join(timeout=1)
+
+                if run_error:
+                    status.update(label="❌ Analysis failed", state="error")
+                    st.error(f"Error: {run_error}")
+                elif final_results:
+                    st.session_state.workflow_results = final_results
+                    # Persist this run so it can be viewed after switching/restart
+                    st.session_state.session_manager.save_results(final_results)
+                    status.update(label="✅ Analysis complete!", state="complete")
+                    with live_area:
+                        display_run_stats(final_results.get("stats"))
+                    st.balloons()
+
+        # Persisted replay (after reruns / tab switches) — skip right after a
+        # live run to avoid rendering the conversation twice on the same pass.
+        if st.session_state.workflow_results and not streamed_this_run:
             st.markdown("---")
-            st.subheader("📊 Agent Collaboration Flow")
-            st.info("💡 **Watch how agents challenge and respond to each other in real-time conversation**")
-            
-            # Show the multi-agent conversation
-            conversation = st.session_state.workflow_results.get("conversation_history", [])
-            
-            for step in conversation:
-                responding_to = step.get("responding_to", None)
-                display_agent_response(
-                    step["agent"], 
-                    step["role"], 
-                    step["message"],
-                    responding_to
-                )
+            st.subheader("📊 Agent Reasoning Flow")
+
+            results = st.session_state.workflow_results
+            conversation = results.get("conversation_history", [])
+
+            if not conversation:
+                st.info("No reasoning steps were captured for this run.")
+            else:
+                for step in conversation:
+                    display_agent_response(
+                        step["agent"],
+                        step["role"],
+                        step["message"],
+                        step.get("responding_to", None),
+                    )
+
+            display_run_stats(results.get("stats"))
     
     with tab4:
         st.header("📊 Research Results")

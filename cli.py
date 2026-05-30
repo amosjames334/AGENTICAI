@@ -67,7 +67,7 @@ def main():
     research_parser.add_argument("topic", type=str, help="Research topic")
     research_parser.add_argument("--session-id", type=str, help="Use existing session")
     research_parser.add_argument("--max-papers", type=int, default=10)
-    research_parser.add_argument("--model", type=str, default="gpt-4-turbo-preview")
+    research_parser.add_argument("--model", type=str, default="claude-sonnet-4-5-20250929")
     research_parser.add_argument("--temperature", type=float, default=0.7)
     research_parser.add_argument("--output", type=str, help="Output file")
     research_parser.add_argument("--verbose", action="store_true")

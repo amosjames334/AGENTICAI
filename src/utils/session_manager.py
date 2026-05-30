@@ -120,6 +120,45 @@ class SessionManager:
     def get_cache_dir(self) -> str:
         """Get cache directory path"""
         return str(self.cache_dir)
+
+    RESULTS_FILE = "results.json"
+
+    def save_results(self, results: dict) -> None:
+        """Persist the latest agent-analysis run for this session.
+
+        The bulky `papers` list is stripped (it is restored from manifest.json).
+        Best-effort: never raises so a save failure cannot break a run.
+        """
+        if not self.session_dir:
+            return
+        try:
+            to_save = {k: v for k, v in results.items() if k != "papers"}
+            to_save["run_at"] = datetime.now().isoformat()
+            results_file = self.session_dir / self.RESULTS_FILE
+            with open(results_file, "w", encoding="utf-8") as f:
+                json.dump(to_save, f, indent=2)
+        except Exception:
+            # Persistence is best-effort; ignore failures.
+            pass
+
+    def load_results(self) -> Optional[dict]:
+        """Load the saved run results for this session, if any."""
+        if not self.session_dir:
+            return None
+        results_file = self.session_dir / self.RESULTS_FILE
+        if not results_file.exists():
+            return None
+        try:
+            with open(results_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def has_results(self) -> bool:
+        """Whether a saved run exists for this session."""
+        if not self.session_dir:
+            return False
+        return (self.session_dir / self.RESULTS_FILE).exists()
     
     @staticmethod
     def list_sessions(base_dir: str = "data") -> list:

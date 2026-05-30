@@ -36,7 +36,7 @@ def main():
     print("   This may take a few minutes...")
     
     workflow = ResearchWorkflow(
-        model="gpt-4-turbo-preview",
+        model="claude-sonnet-4-5-20250929",
         temperature=0.7
     )
     

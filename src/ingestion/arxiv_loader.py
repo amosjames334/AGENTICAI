@@ -45,6 +45,9 @@ class ArxivLoader:
             self.session_manager = None
         
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # arxiv>=2.x requires a Client; Search.results() was removed.
+        self._client = arxiv.Client()
     
     def search_papers(
         self, 
@@ -72,7 +75,7 @@ class ArxivLoader:
         )
         
         papers = []
-        for result in search.results():
+        for result in self._client.results(search):
             paper = {
                 "title": result.title,
                 "authors": [author.name for author in result.authors],
@@ -100,7 +103,7 @@ class ArxivLoader:
             Path to the downloaded PDF file
         """
         try:
-            paper = next(arxiv.Search(id_list=[arxiv_id]).results())
+            paper = next(self._client.results(arxiv.Search(id_list=[arxiv_id])))
             
             # Use title-based filename if provided, otherwise use arxiv_id
             if title:
@@ -114,7 +117,9 @@ class ArxivLoader:
                 return pdf_path
             
             logger.info(f"Downloading paper: {arxiv_id}")
-            paper.download_pdf(filename=str(pdf_path))
+            # arxiv v4 removed Result.download_pdf(); fetch via the PDF URL.
+            pdf_url = paper.pdf_url
+            urllib.request.urlretrieve(pdf_url, str(pdf_path))
             return pdf_path
             
         except Exception as e:

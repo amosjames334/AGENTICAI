@@ -11,7 +11,7 @@ def test_imports():
     try:
         import langchain
         import langgraph
-        import openai
+        import langchain_anthropic
         import streamlit
         import arxiv
         import pypdf
@@ -31,14 +31,14 @@ def test_env_config():
         import os
         
         load_dotenv()
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("ANTHROPIC_API_KEY")
         
         if not api_key:
-            print("⚠️  OPENAI_API_KEY not found in .env file")
+            print("⚠️  ANTHROPIC_API_KEY not found in .env file")
             print("   Please add your API key to .env")
             return False
-        elif api_key == "your_openai_api_key_here":
-            print("⚠️  OPENAI_API_KEY appears to be placeholder")
+        elif api_key == "sk-ant-your-actual-api-key-here":
+            print("⚠️  ANTHROPIC_API_KEY appears to be placeholder")
             print("   Please add your actual API key to .env")
             return False
         else:
@@ -150,7 +150,7 @@ def main():
         print("\n⚠️  Some tests failed. Please fix the issues above.")
         print("\nCommon fixes:")
         print("  - Run: pip install -r requirements.txt")
-        print("  - Add OPENAI_API_KEY to .env file")
+        print("  - Add ANTHROPIC_API_KEY to .env file")
         print("  - Run: ./setup.sh")
         return 1
 

@@ -24,6 +24,7 @@ wheels/
 venv/
 env/
 ENV/
+.venv/
 
 # Environment Variables
 .env
@@ -40,12 +41,9 @@ ENV/
 Thumbs.db
 
 # Project Specific
-data/papers/*
-!data/papers/.gitkeep
-data/vector_store/
+# session data, downloaded papers, vector stores, results
+data/
+# local working notes
+Doc/
 *.log
 streamlit_cache/
-
-.venv
-data/
-Doc

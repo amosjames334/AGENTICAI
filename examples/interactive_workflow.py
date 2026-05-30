@@ -29,7 +29,7 @@ def main():
     print("This workflow includes iterative refinement...\n")
     
     workflow = InteractiveResearchWorkflow(
-        model="gpt-4-turbo-preview",
+        model="claude-sonnet-4-5-20250929",
         temperature=0.7
     )
     

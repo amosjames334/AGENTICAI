@@ -10,9 +10,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from agents.agent_definitions import DialogueModerator, AgentState
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
 import os
+
+MODEL = "claude-sonnet-4-5-20250929"
 
 load_dotenv()
 
@@ -24,10 +26,10 @@ def demo_debate():
     print("=" * 80)
     print()
     
-    llm = ChatOpenAI(
-        model="gpt-4-turbo-preview",
+    llm = ChatAnthropic(
+        model=MODEL,
         temperature=0.7,
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("ANTHROPIC_API_KEY")
     )
     
     moderator = DialogueModerator(llm)
@@ -75,10 +77,10 @@ def demo_reasoning_chain():
     print("=" * 80)
     print()
     
-    llm = ChatOpenAI(
-        model="gpt-4-turbo-preview",
+    llm = ChatAnthropic(
+        model=MODEL,
         temperature=0.7,
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("ANTHROPIC_API_KEY")
     )
     
     moderator = DialogueModerator(llm)
@@ -128,10 +130,10 @@ def demo_facilitated_dialogue():
     print("=" * 80)
     print()
     
-    llm = ChatOpenAI(
-        model="gpt-4-turbo-preview",
+    llm = ChatAnthropic(
+        model=MODEL,
         temperature=0.7,
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("ANTHROPIC_API_KEY")
     )
     
     moderator = DialogueModerator(llm)
@@ -239,13 +241,13 @@ if __name__ == "__main__":
 ╚══════════════════════════════════════════════════════════════════╝
     """)
     
-    print("\n📝 NOTE: This demo requires OpenAI API key in .env file")
+    print("\n📝 NOTE: This demo requires an Anthropic API key in .env file")
     print()
     
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ Error: OPENAI_API_KEY not found in environment")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        print("❌ Error: ANTHROPIC_API_KEY not found in environment")
         print("Please add it to your .env file:")
-        print("OPENAI_API_KEY=your_key_here")
+        print("ANTHROPIC_API_KEY=your_key_here")
         sys.exit(1)
     
     # Show comparison first

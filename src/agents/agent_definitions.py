@@ -1,6 +1,13 @@
-"""Agent definitions and prompts"""
+"""Agent definitions and prompts.
+
+NOTE: The standalone agent classes below (ResearchAgent, CriticAgent, etc.) are
+the original fixed-chain agents. They are retained for reference only and are no
+longer wired into the active workflow, which now uses the Claude ReAct
+`ReasoningAgent` (see reasoning_agent.py). The `retrieve_evidence` helper below
+is still used as the agent's vector-store search tool.
+"""
 from typing import TypedDict, List, Dict, Annotated, Optional
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 import operator
 import logging
 
@@ -100,7 +107,7 @@ def retrieve_evidence(
 class ResearchAgent:
     """Agent that reads and summarizes research papers"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Researcher"
         self.role = "Research Analyst"
@@ -275,7 +282,7 @@ Provide your analysis:"""
 class CriticAgent:
     """Agent that critiques and questions research findings"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Critic"
         self.role = "Research Critic"
@@ -397,7 +404,7 @@ Keep it conversational (2-3 paragraphs)."""
 class QuestionGeneratorAgent:
     """Agent that generates follow-up research questions"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Question Generator"
         self.role = "Research Question Specialist"
@@ -471,7 +478,7 @@ Provide your questions as a numbered list with brief explanations for each."""
 class SynthesizerAgent:
     """Agent that synthesizes insights from all agents"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Synthesizer"
         self.role = "Research Synthesizer"
@@ -561,7 +568,7 @@ Provide your synthesis:"""
 class DialogueModerator:
     """Agent that facilitates conversations between research agents"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Moderator"
         self.role = "Dialogue Facilitator"
@@ -777,7 +784,7 @@ Generate the reasoning dialogue:"""
 class InsightGeneratorAgent:
     """Agent that generates collective insights and testable hypotheses"""
     
-    def __init__(self, llm: ChatOpenAI):
+    def __init__(self, llm: ChatAnthropic):
         self.llm = llm
         self.name = "Insight Generator"
         self.role = "Collective Insight Agent"

@@ -73,7 +73,7 @@ load_dotenv()
 
 Make sure you've:
 1. Installed dependencies: `pip install -r requirements.txt`
-2. Set up your `.env` file with `OPENAI_API_KEY`
+2. Set up your `.env` file with `ANTHROPIC_API_KEY` (and optional `BRAVE_API_KEY`)
 3. Activated your virtual environment
 
 Then run any example:
